@@ -111,6 +111,17 @@ function image_tag_to_digest() {
   echo "$image_name@$image_digest"
 }
 
+function filter_legacy_workbench_images() {
+  grep -Ev 'quay\.io/modh/(odh-minimal-notebook-container|cuda-notebooks|odh-pytorch-notebook|odh-generic-data-science-notebook|odh-trustyai-notebook|codeserver|rocm-notebooks)@'
+}
+
+function legacy_workbench_images() {
+  IMAGES_FILE="$repository_folder/rhoai-additional-images/rhoai-disconnected-images.yaml"
+  if [ -f "$IMAGES_FILE" ]; then
+    yq e '.additional-images[]' "$IMAGES_FILE" | grep -E 'quay\.io/modh/(odh-minimal-notebook-container|cuda-notebooks|odh-pytorch-notebook|odh-generic-data-science-notebook|odh-trustyai-notebook|codeserver|rocm-notebooks)@'
+  fi
+}
+
 function find_images(){
   local openvino=""
   if is_rhods_version_greater_or_equal_to rhods-2.4; then
@@ -157,8 +168,12 @@ function find_images(){
       # Read the YAML file and parse it using yq
       ADDITIONAL_IMAGES=$(yq e '.additional-images[]' "$IMAGES_FILE")
 
-      # Display the images
-      echo "$ADDITIONAL_IMAGES"
+      # For RHOAI 3.3+, filter out legacy workbench images
+      if is_rhods_version_greater_or_equal_to rhoai-3.3; then
+        echo "$ADDITIONAL_IMAGES" | filter_legacy_workbench_images
+      else
+        echo "$ADDITIONAL_IMAGES"
+      fi
     fi 
 
 
@@ -194,12 +209,17 @@ function find_notebooks_images() {
 }
 function unsupported_images() {
   if is_rhods_version_greater_or_equal_to rhods-2.22; then
-    find "$repository_folder" -type f -path "*/notebooks/manifests*" \
-      -exec grep -hE 'n-(2|[3-9]|[1-9][0-9]+)' {} + \
-      | grep -Eo "quay\.io/[^/]+/[^@\{\},]+@sha256:[a-f0-9]+" \
-      | grep -v 'quay\.io/opendatahub' \
-      | grep -v 'quay\.io/integreatly/prometheus-blackbox-exporter' \
-      | sort -u
+    # For RHOAI 3.3+, include legacy workbench images in unsupported section
+    if is_rhods_version_greater_or_equal_to rhoai-3.3; then
+      legacy_workbench_images
+    else
+      find "$repository_folder" -type f -path "*/notebooks/manifests*" \
+        -exec grep -hE 'n-(2|[3-9]|[1-9][0-9]+)' {} + \
+        | grep -Eo "quay\.io/[^/]+/[^@\{\},]+@sha256:[a-f0-9]+" \
+        | grep -v 'quay\.io/opendatahub' \
+        | grep -v 'quay\.io/integreatly/prometheus-blackbox-exporter' \
+        | sort -u
+    fi
   fi
 }
 function image_set_configuration() {
